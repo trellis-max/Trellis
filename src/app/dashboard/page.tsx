@@ -1,116 +1,204 @@
-/**
- * Owner Dashboard — Overview (Server Component)
- * ==============================================
- * Wired to live Supabase queries. Kindergarten-simple, mobile-first.
- */
-
-import { getDashboardStats, getFunnelCounts } from '@/lib/supabase/queries';
-import { FUNNEL_STAGES, STAGE_LABELS, STAGE_COLORS } from '@/lib/crm/lifecycle';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(amount);
-}
-
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning ☀️';
-  if (hour < 17) return 'Good afternoon 🌤️';
-  return 'Good evening 🌙';
-}
+import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import Link from "next/link";
 
 export default async function DashboardPage() {
-  let stats = { activeLeads: 0, upcomingEvents: 0, openTasks: 0, monthRevenue: 0, upcomingEventsList: [] as { id: string; event_date: string }[] };
-  let funnelCounts: Record<string, number> = {};
-  let dbConnected = false;
+  const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/auth/login");
 
-  try {
-    [stats, funnelCounts] = await Promise.all([getDashboardStats(), getFunnelCounts()]);
-    dbConnected = true;
-  } catch {
-    // DB not connected yet — show placeholder UI
-  }
+  // Fetch all metrics in parallel
+  const [
+    couplesRes,
+    eventsRes,
+    tasksRes,
+    inventoryRes,
+    paymentsRes,
+    expensesRes,
+    staffRes,
+  ] = await Promise.all([
+    supabase.from("couples").select("id, name, stage, created_at", { count: "exact" }),
+    supabase.from("events").select("id, name, date, status, guest_count").order("date", { ascending: true }),
+    supabase.from("tasks").select("id, title, status, priority, due_date").order("due_date", { ascending: true }),
+    supabase.from("inventory_items").select("id, name, quantity, par_level, category"),
+    supabase.from("payments").select("id, amount, created_at"),
+    supabase.from("expenses").select("id, amount, date"),
+    supabase.from("staff_members").select("id, name, role, is_active"),
+  ]);
 
-  const statCards = [
-    { label: 'Active Leads', value: dbConnected ? String(stats.activeLeads) : '—', icon: '🌱', color: 'bg-blue-50 text-blue-700' },
-    { label: 'Upcoming Events', value: dbConnected ? String(stats.upcomingEvents) : '—', icon: '📅', color: 'bg-green-50 text-green-700' },
-    { label: 'This Month Revenue', value: dbConnected ? formatCurrency(stats.monthRevenue) : '—', icon: '💰', color: 'bg-yellow-50 text-yellow-700' },
-    { label: 'Open Tasks', value: dbConnected ? String(stats.openTasks) : '—', icon: '✅', color: 'bg-purple-50 text-purple-700' },
-  ];
+  const couples = couplesRes.data || [];
+  const events = eventsRes.data || [];
+  const tasks = tasksRes.data || [];
+  const inventory = inventoryRes.data || [];
+  const payments = paymentsRes.data || [];
+  const expenses = expensesRes.data || [];
+  const staff = staffRes.data || [];
 
-  const maxFunnel = Math.max(...FUNNEL_STAGES.map(s => funnelCounts[s] ?? 0), 1);
+  // Compute metrics
+  const now = new Date();
+  const upcomingEvents = events.filter((e) => new Date(e.date) >= now);
+  const pendingTasks = tasks.filter((t) => t.status === "pending");
+  const overdueTasks = pendingTasks.filter((t) => t.due_date && new Date(t.due_date) < now);
+  const urgentTasks = pendingTasks.filter((t) => t.priority === "urgent" || t.priority === "high");
+  const lowStockItems = inventory.filter((i) => 
+    typeof i.quantity === "number" && typeof i.par_level === "number" && i.quantity <= i.par_level
+  );
+  const totalRevenue = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const activeStaff = staff.filter((s) => s.is_active);
+
+  const nextEvent = upcomingEvents[0];
+  const daysToNextEvent = nextEvent
+    ? Math.ceil((new Date(nextEvent.date).getTime() - now.getTime()) / 86400000)
+    : null;
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-trellis-charcoal">{getGreeting()}</h1>
-        <p className="mt-1 text-trellis-charcoal/60">
-          Here&apos;s what&apos;s happening at Willow Acres
+        <h1 className="text-2xl font-bold text-[#D4AF37]">Dashboard</h1>
+        <p className="text-sm text-gray-400 mt-1">
+          {now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
         </p>
       </div>
 
-      {/* Key Stats */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {statCards.map((stat) => (
-          <div key={stat.label} className="rounded-xl bg-white p-5 shadow-sm transition hover:shadow-md">
-            <div className="flex items-center justify-between">
-              <span className="text-2xl">{stat.icon}</span>
-              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${stat.color}`}>
-                {stat.value}
-              </span>
-            </div>
-            <p className="mt-3 text-sm font-medium text-trellis-charcoal/70">{stat.label}</p>
-          </div>
-        ))}
-      </div>
+      {/* Key metrics */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Link href="/dashboard/events" className="bg-[#2A2A2A] rounded-lg border border-[#3A3A3A] p-4 hover:border-[#D4AF37] transition-colors">
+          <p className="text-sm text-gray-400">Upcoming Events</p>
+          <p className="text-2xl font-bold text-white">{upcomingEvents.length}</p>
+          {nextEvent && (
+            <p className="text-xs text-[#D4AF37] mt-1">
+              Next: {daysToNextEvent === 0 ? "TODAY" : daysToNextEvent === 1 ? "Tomorrow" : `${daysToNextEvent} days`}
+            </p>
+          )}
+        </Link>
 
-      {/* Booking Funnel */}
-      <div className="rounded-xl bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-lg font-semibold text-trellis-charcoal">Booking Funnel</h2>
-        <div className="space-y-3">
-          {FUNNEL_STAGES.map((stage) => {
-            const count = funnelCounts[stage] ?? 0;
-            const pct = maxFunnel > 0 ? Math.max((count / maxFunnel) * 100, 4) : 4;
-            return (
-              <div key={stage} className="flex items-center gap-3">
-                <span className="w-28 text-sm font-medium text-trellis-charcoal/70">{STAGE_LABELS[stage]}</span>
-                <div className="flex-1">
-                  <div className="h-8 w-full rounded-lg bg-gray-100">
-                    <div
-                      className={`h-8 rounded-lg ${STAGE_COLORS[stage].split(' ')[0]} flex items-center px-3 text-xs font-bold text-white transition-all`}
-                      style={{ width: `${pct}%` }}
-                    >
-                      {count > 0 ? count : ''}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {!dbConnected && (
-          <p className="mt-4 text-center text-xs text-trellis-charcoal/40">
-            Set SUPABASE env vars to see live data
+        <Link href="/dashboard/tasks" className="bg-[#2A2A2A] rounded-lg border border-[#3A3A3A] p-4 hover:border-[#D4AF37] transition-colors">
+          <p className="text-sm text-gray-400">Pending Tasks</p>
+          <p className="text-2xl font-bold text-white">{pendingTasks.length}</p>
+          {overdueTasks.length > 0 && (
+            <p className="text-xs text-red-400 mt-1">⚠ {overdueTasks.length} overdue</p>
+          )}
+          {overdueTasks.length === 0 && urgentTasks.length > 0 && (
+            <p className="text-xs text-orange-400 mt-1">{urgentTasks.length} high priority</p>
+          )}
+        </Link>
+
+        <Link href="/dashboard/couples" className="bg-[#2A2A2A] rounded-lg border border-[#3A3A3A] p-4 hover:border-[#D4AF37] transition-colors">
+          <p className="text-sm text-gray-400">Active Couples</p>
+          <p className="text-2xl font-bold text-white">{couples.length}</p>
+          <p className="text-xs text-gray-500 mt-1">
+            {couples.filter((c) => c.stage === "booked").length} booked
           </p>
-        )}
+        </Link>
+
+        <Link href="/dashboard/inventory" className="bg-[#2A2A2A] rounded-lg border border-[#3A3A3A] p-4 hover:border-[#D4AF37] transition-colors">
+          <p className="text-sm text-gray-400">Inventory</p>
+          <p className="text-2xl font-bold text-white">{inventory.length} items</p>
+          {lowStockItems.length > 0 && (
+            <p className="text-xs text-red-400 mt-1">⚠ {lowStockItems.length} below par</p>
+          )}
+        </Link>
       </div>
 
-      {/* Quick Actions */}
-      <div className="rounded-xl bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-lg font-semibold text-trellis-charcoal">Quick Actions</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[
-            { label: 'New Lead', icon: '➕', href: '/dashboard/couples/new' },
-            { label: 'Snap Receipt', icon: '📸', href: '/dashboard/finances' },
-            { label: 'Add Task', icon: '📋', href: '/dashboard/tasks' },
-            { label: 'Ask Trellis', icon: '💬', href: '#ask-trellis' },
-          ].map((action) => (
-            <a key={action.label} href={action.href}
-              className="flex flex-col items-center gap-2 rounded-xl border-2 border-trellis-warm-gray p-4 text-center transition hover:border-trellis-gold hover:bg-trellis-gold/5">
-              <span className="text-2xl">{action.icon}</span>
-              <span className="text-sm font-medium text-trellis-charcoal">{action.label}</span>
-            </a>
-          ))}
+      {/* Financial summary */}
+      <div className="bg-[#2A2A2A] rounded-lg border border-[#3A3A3A] p-5">
+        <h3 className="text-white font-semibold mb-3">💰 Financial Summary</h3>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <p className="text-sm text-gray-400">Revenue</p>
+            <p className="text-xl font-bold text-green-400">${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2 })}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-400">Expenses</p>
+            <p className="text-xl font-bold text-red-400">${totalExpenses.toLocaleString("en-US", { minimumFractionDigits: 2 })}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-400">Net</p>
+            <p className={`text-xl font-bold ${totalRevenue - totalExpenses >= 0 ? "text-[#D4AF37]" : "text-red-400"}`}>
+              ${(totalRevenue - totalExpenses).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+            </p>
+          </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Next event */}
+        <div className="bg-[#2A2A2A] rounded-lg border border-[#3A3A3A] p-5">
+          <h3 className="text-white font-semibold mb-3">📅 Next Event</h3>
+          {nextEvent ? (
+            <Link href={`/dashboard/events/${nextEvent.id}`} className="block hover:bg-[#333] rounded-lg p-3 -m-1 transition-colors">
+              <p className="text-[#D4AF37] font-semibold">{String(nextEvent.name)}</p>
+              <p className="text-sm text-gray-400 mt-1">
+                {new Date(nextEvent.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+              </p>
+              <p className="text-sm text-gray-500 mt-1">{nextEvent.guest_count} guests • {String(nextEvent.status)}</p>
+            </Link>
+          ) : (
+            <p className="text-gray-500 text-sm">No upcoming events</p>
+          )}
+        </div>
+
+        {/* Low stock alerts */}
+        <div className="bg-[#2A2A2A] rounded-lg border border-[#3A3A3A] p-5">
+          <h3 className="text-white font-semibold mb-3">📦 Inventory Alerts</h3>
+          {lowStockItems.length === 0 ? (
+            <p className="text-green-400 text-sm">✓ All items above par level</p>
+          ) : (
+            <div className="space-y-2">
+              {lowStockItems.slice(0, 5).map((item) => (
+                <div key={item.id} className="flex justify-between text-sm">
+                  <span className="text-gray-300">{String(item.name)}</span>
+                  <span className="text-red-400">{item.quantity}/{item.par_level}</span>
+                </div>
+              ))}
+              {lowStockItems.length > 5 && (
+                <Link href="/dashboard/inventory" className="text-xs text-[#D4AF37] hover:underline">
+                  +{lowStockItems.length - 5} more →
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Quick actions */}
+      <div className="bg-[#2A2A2A] rounded-lg border border-[#3A3A3A] p-5">
+        <h3 className="text-white font-semibold mb-3">⚡ Quick Actions</h3>
+        <div className="flex flex-wrap gap-3">
+          <Link href="/dashboard/couples/new" className="px-4 py-2 bg-[#D4AF37] text-black rounded-lg text-sm font-medium hover:bg-[#C4A030]">
+            + New Couple
+          </Link>
+          <Link href="/dashboard/voice" className="px-4 py-2 bg-[#3A3A3A] text-white rounded-lg text-sm hover:bg-[#4A4A4A]">
+            🎤 Voice Memo
+          </Link>
+          <Link href="/dashboard/receipts" className="px-4 py-2 bg-[#3A3A3A] text-white rounded-lg text-sm hover:bg-[#4A4A4A]">
+            📸 Scan Receipt
+          </Link>
+          <Link href="/dashboard/ask" className="px-4 py-2 bg-[#3A3A3A] text-white rounded-lg text-sm hover:bg-[#4A4A4A]">
+            🤖 Ask Trellis
+          </Link>
+          <Link href="/dashboard/finances/invoicing" className="px-4 py-2 bg-[#3A3A3A] text-white rounded-lg text-sm hover:bg-[#4A4A4A]">
+            🧾 Create Invoice
+          </Link>
+        </div>
+      </div>
+
+      {/* Staff on duty */}
+      <div className="bg-[#2A2A2A] rounded-lg border border-[#3A3A3A] p-5">
+        <h3 className="text-white font-semibold mb-3">👥 Team ({activeStaff.length} active)</h3>
+        {activeStaff.length === 0 ? (
+          <p className="text-gray-500 text-sm">No staff members added yet</p>
+        ) : (
+          <div className="flex flex-wrap gap-3">
+            {activeStaff.map((s) => (
+              <div key={s.id} className="px-3 py-2 bg-[#1E1E1E] rounded-lg text-sm">
+                <span className="text-white">{String(s.name)}</span>
+                <span className="text-gray-500 ml-2 text-xs capitalize">{String(s.role)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
