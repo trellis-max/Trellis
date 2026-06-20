@@ -1,161 +1,174 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
-interface AskResult {
-  answer: string;
-  data_sources: string[];
-  requires_action: boolean;
-  suggested_action: {
-    type: string;
-    description: string;
-  } | null;
-  stub: boolean;
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
 }
 
 export default function AskTrellisPage() {
-  const [question, setQuestion] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [conversation, setConversation] = useState<
-    Array<{ role: "user" | "assistant"; content: string; action?: AskResult["suggested_action"] }>
-  >([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  async function handleAsk(e: React.FormEvent) {
-    e.preventDefault();
-    if (!question.trim() || loading) return;
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
 
-    const q = question.trim();
-    setQuestion("");
-    setConversation((prev) => [...prev, { role: "user", content: q }]);
+  async function handleSend() {
+    const text = input.trim();
+    if (!text || loading) return;
+
+    const userMsg: ChatMessage = { role: "user", content: text };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
     setLoading(true);
 
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/ask-trellis`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({ question: q }),
-        },
-      );
+      const res = await fetch("/api/ask-trellis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, history: messages }),
+      });
 
-      const data = await response.json();
-      if (data.data) {
-        setConversation((prev) => [
+      const data = await res.json();
+      if (res.ok && data.reply) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: data.reply },
+        ]);
+      } else {
+        setMessages((prev) => [
           ...prev,
           {
             role: "assistant",
-            content: data.data.answer,
-            action: data.data.suggested_action,
+            content: data.error || "Something went wrong. Please try again.",
           },
         ]);
       }
     } catch {
-      setConversation((prev) => [
+      setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "Something went wrong. Please try again." },
+        {
+          role: "assistant",
+          content: "Network error. Check your connection and try again.",
+        },
       ]);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)]">
-      <h1 className="text-2xl font-bold text-[#D4AF37] mb-4">
-        Ask Trellis
-      </h1>
-      <p className="text-sm text-gray-400 mb-6">
-        Ask anything about your business — events, inventory, finances,
-        staff. Trellis AI Engine answers from your real data.
-      </p>
+    <div className="flex flex-col h-[calc(100vh-6rem)]">
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold text-[#D4AF37]">Ask Trellis</h1>
+        <p className="text-sm text-gray-400 mt-1">
+          Your AI operations assistant. Ask about events, inventory, finances,
+          tasks — anything venue-related.
+        </p>
+      </div>
 
-      {/* Conversation */}
-      <div className="flex-1 overflow-y-auto space-y-4 mb-4">
-        {conversation.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-4xl mb-4">🧠</p>
-            <p className="text-gray-400 mb-6">
-              Try asking something like:
-            </p>
-            <div className="space-y-2">
-              {[
-                "How many weddings do we have in August?",
-                "What\'s our bar cost for the next event?",
-                "Which inventory items need reordering?",
-                "Show me overdue tasks",
-              ].map((example) => (
-                <button
-                  key={example}
-                  onClick={() => setQuestion(example)}
-                  className="block mx-auto px-4 py-2 bg-[#2A2A2A] text-gray-300 rounded-lg hover:bg-[#3A3A3A] hover:text-[#D4AF37] transition-colors text-sm"
-                >
-                  &ldquo;{example}&rdquo;
-                </button>
-              ))}
+      {/* Chat area */}
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto space-y-4 pb-4"
+      >
+        {messages.length === 0 && (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center max-w-md">
+              <p className="text-4xl mb-3">🤖</p>
+              <p className="text-gray-400 mb-4">
+                Ask me anything about your venue operations.
+              </p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {[
+                  "What events are coming up?",
+                  "Any inventory running low?",
+                  "How should I price a 150-guest bar package?",
+                  "When is the next tax filing deadline?",
+                ].map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    onClick={() => {
+                      setInput(suggestion);
+                    }}
+                    className="px-3 py-1.5 bg-[#2A2A2A] text-gray-300 rounded-lg text-xs hover:bg-[#3A3A3A] border border-[#3A3A3A]"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
 
-        {conversation.map((msg, i) => (
+        {messages.map((msg, i) => (
           <div
             key={i}
             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`max-w-[80%] rounded-lg p-3 ${
+              className={`max-w-[80%] rounded-lg px-4 py-3 text-sm ${
                 msg.role === "user"
                   ? "bg-[#D4AF37] text-black"
-                  : "bg-[#2A2A2A] text-white border border-[#3A3A3A]"
+                  : "bg-[#2A2A2A] text-gray-200 border border-[#3A3A3A]"
               }`}
             >
-              <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-              {msg.action && (
-                <div className="mt-2 pt-2 border-t border-[#4A4A4A]">
-                  <p className="text-xs text-gray-400 mb-1">
-                    Suggested action:
-                  </p>
-                  <button className="px-3 py-1 bg-[#D4AF37] text-black text-xs rounded font-medium hover:bg-[#C4A030]">
-                    {msg.action.description}
-                  </button>
-                </div>
+              {msg.role === "assistant" && (
+                <p className="text-xs text-[#D4AF37] font-medium mb-1">
+                  Trellis AI
+                </p>
               )}
+              <div className="whitespace-pre-wrap">{msg.content}</div>
             </div>
           </div>
         ))}
 
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-[#2A2A2A] rounded-lg p-3 border border-[#3A3A3A]">
-              <p className="text-sm text-gray-400 animate-pulse">
-                Thinking...
+            <div className="bg-[#2A2A2A] rounded-lg px-4 py-3 border border-[#3A3A3A]">
+              <p className="text-xs text-[#D4AF37] font-medium mb-1">
+                Trellis AI
               </p>
+              <div className="flex gap-1">
+                <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Input */}
-      <form onSubmit={handleAsk} className="flex gap-2">
-        <input
-          type="text"
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder="Ask Trellis anything..."
-          className="flex-1 px-4 py-3 bg-[#2A2A2A] border border-[#3A3A3A] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-[#D4AF37]"
-          disabled={loading}
-        />
-        <button
-          type="submit"
-          disabled={loading || !question.trim()}
-          className="px-6 py-3 bg-[#D4AF37] text-black rounded-lg font-medium hover:bg-[#C4A030] disabled:opacity-50 disabled:cursor-not-allowed"
+      {/* Input area */}
+      <div className="border-t border-[#3A3A3A] pt-4">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSend();
+          }}
+          className="flex gap-3"
         >
-          Ask
-        </button>
-      </form>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask Trellis anything..."
+            className="flex-1 px-4 py-3 bg-[#2A2A2A] border border-[#3A3A3A] rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-[#D4AF37]"
+            disabled={loading}
+          />
+          <button
+            type="submit"
+            disabled={!input.trim() || loading}
+            className="px-5 py-3 bg-[#D4AF37] text-black rounded-lg font-medium hover:bg-[#C4A030] disabled:opacity-50 text-sm"
+          >
+            Send
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
