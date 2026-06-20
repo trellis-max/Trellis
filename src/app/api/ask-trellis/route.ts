@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-3-5-sonnet-20241022",
         max_tokens: 1024,
         system: SYSTEM_PROMPT + contextBlock,
         messages,
@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
       user_id: user.id,
       details: {
         message_length: message.length,
-        model: "claude-sonnet-4-20250514",
+        model: "claude-3-5-sonnet-20241022",
       },
     });
 

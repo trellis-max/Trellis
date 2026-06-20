@@ -18,7 +18,7 @@ async function checkAnthropic(): Promise<{ status: string; detail: string }> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-3-5-sonnet-20241022",
         max_tokens: 10,
         messages: [{ role: "user", content: "Say OK" }],
       }),
