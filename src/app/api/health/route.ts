@@ -9,56 +9,34 @@ async function checkAnthropic(): Promise<{ status: string; detail: string }> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return { status: "FAIL", detail: "ANTHROPIC_API_KEY not set" };
 
-  // Try multiple model names to find what's available
-  const models = [
-    "claude-sonnet-4-20250514",
-    "claude-3-5-sonnet-20241022",
-    "claude-3-7-sonnet-20250219",
-    "claude-3-7-sonnet-latest",
-    "claude-3-5-sonnet-latest",
-    "claude-sonnet-4-latest",
-    "claude-3-haiku-20240307",
-    "claude-3-5-haiku-20241022",
-  ];
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 10,
+        messages: [{ role: "user", content: "Say OK" }],
+      }),
+    });
 
-  let firstErr = "";
-  for (const model of models) {
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": key,
-          "anthropic-version": "2023-06-01",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 10,
-          messages: [{ role: "user", content: "Say OK" }],
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.content?.[0]?.text?.slice(0, 30) ?? "no text";
-        return { status: "PASS", detail: `model=${model}, response: "${text}"` };
-      }
-      // Capture full error for first model to help debug
-      if (res.status !== 200) {
-        const errText = await res.text().catch(() => "");
-        if (res.status !== 404) {
-          return { status: res.status === 401 ? "FAIL" : "WARN", detail: `model=${model}, HTTP ${res.status}: ${errText.slice(0, 200)}` };
-        }
-        // For 404, capture first error and continue trying
-        if (model === models[0]) {
-          firstErr = `${model}: ${errText.slice(0, 150)}`;
-        }
-      }
-    } catch (e) {
-      return { status: "FAIL", detail: `Network error on ${model}: ${String(e)}` };
+    if (res.ok) {
+      const data = await res.json();
+      const text = data?.content?.[0]?.text?.slice(0, 30) ?? "no text";
+      return { status: "PASS", detail: `claude-sonnet-4-6 responded: "${text}"` };
     }
+    const errText = await res.text().catch(() => "");
+    return {
+      status: "FAIL",
+      detail: `HTTP ${res.status}: ${errText.slice(0, 150)}`,
+    };
+  } catch (e) {
+    return { status: "FAIL", detail: `Network error: ${String(e)}` };
   }
-  return { status: "FAIL", detail: `All ${models.length} models 404. First error: ${firstErr}` };
 }
 
 async function checkDeepgram(): Promise<{ status: string; detail: string }> {
@@ -66,8 +44,6 @@ async function checkDeepgram(): Promise<{ status: string; detail: string }> {
   if (!key) return { status: "FAIL", detail: "DEEPGRAM_API_KEY not set" };
 
   try {
-    // Minimal request: send a tiny silent WAV to Deepgram
-    // 44 bytes WAV header + 0 samples = valid but empty
     const wavHeader = new Uint8Array([
       0x52,0x49,0x46,0x46, 0x24,0x00,0x00,0x00, 0x57,0x41,0x56,0x45,
       0x66,0x6d,0x74,0x20, 0x10,0x00,0x00,0x00, 0x01,0x00,0x01,0x00,
@@ -88,7 +64,7 @@ async function checkDeepgram(): Promise<{ status: string; detail: string }> {
     );
 
     if (res.ok) {
-      return { status: "PASS", detail: "Deepgram API authenticated and responded" };
+      return { status: "PASS", detail: "Deepgram Nova-2 authenticated and responded" };
     }
     const err = await res.json().catch(() => ({}));
     return {
