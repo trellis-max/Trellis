@@ -1,0 +1,23 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Trellis brand — gold on charcoal, white-labeled */
+  --color-trellis-gold: #C9A84C;
+  --color-trellis-gold-light: #D4B96A;
+  --color-trellis-gold-dark: #A88A3A;
+  --color-trellis-charcoal: #2D2D2D;
+  --color-trellis-charcoal-light: #3D3D3D;
+  --color-trellis-charcoal-dark: #1A1A1A;
+  --color-trellis-cream: #FAF8F0;
+  --color-trellis-warm-gray: #E8E4DB;
+  --color-trellis-success: #4CAF50;
+  --color-trellis-warning: #FF9800;
+  --color-trellis-error: #E53935;
+  --color-trellis-info: #5C9ACB;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--color-trellis-cream);
+  color: var(--color-trellis-charcoal);
+}
