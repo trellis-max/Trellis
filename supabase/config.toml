@@ -1,0 +1,26 @@
+# Supabase local development config
+[project]
+id = "krzktbmcgntxcqicatgl"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+
+[db]
+port = 54322
+
+[studio]
+enabled = true
+port = 54323
+
+[storage]
+enabled = true
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = [
+  "https://trellis-trellis2.vercel.app",
+  "http://localhost:3000/auth/callback",
+]
