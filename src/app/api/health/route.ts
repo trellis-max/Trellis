@@ -9,37 +9,51 @@ async function checkAnthropic(): Promise<{ status: string; detail: string }> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return { status: "FAIL", detail: "ANTHROPIC_API_KEY not set" };
 
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 10,
-        messages: [{ role: "user", content: "Say OK" }],
-      }),
-    });
+  // Try multiple model names to find what's available
+  const models = [
+    "claude-sonnet-4-20250514",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-7-sonnet-20250219",
+    "claude-3-7-sonnet-latest",
+    "claude-3-5-sonnet-latest",
+    "claude-sonnet-4-latest",
+    "claude-3-haiku-20240307",
+    "claude-3-5-haiku-20241022",
+  ];
 
-    if (res.ok) {
-      const data = await res.json();
-      const text =
-        data?.content?.[0]?.text?.slice(0, 20) ?? "no text";
-      return { status: "PASS", detail: `Claude responded: "${text}"` };
+  for (const model of models) {
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 10,
+          messages: [{ role: "user", content: "Say OK" }],
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.content?.[0]?.text?.slice(0, 30) ?? "no text";
+        return { status: "PASS", detail: `model=${model}, response: "${text}"` };
+      }
+      // If not 404, report the actual error
+      if (res.status !== 404) {
+        const err = await res.json().catch(() => ({}));
+        const errObj = err as Record<string, Record<string, string>>;
+        const msg = errObj?.error?.message ?? res.statusText;
+        return { status: res.status === 401 ? "FAIL" : "WARN", detail: `model=${model}, HTTP ${res.status}: ${msg}` };
+      }
+    } catch (e) {
+      return { status: "FAIL", detail: `Network error on ${model}: ${String(e)}` };
     }
-    const err = await res.json().catch(() => ({}));
-    const errObj = err as Record<string, Record<string, string>>;
-    const msg = errObj?.error?.message ?? res.statusText;
-    return {
-      status: "FAIL",
-      detail: `HTTP ${res.status}: ${msg}`,
-    };
-  } catch (e) {
-    return { status: "FAIL", detail: `Network error: ${String(e)}` };
   }
+  return { status: "FAIL", detail: `All models returned 404: ${models.join(", ")}` };
 }
 
 async function checkDeepgram(): Promise<{ status: string; detail: string }> {
