@@ -21,6 +21,7 @@ async function checkAnthropic(): Promise<{ status: string; detail: string }> {
     "claude-3-5-haiku-20241022",
   ];
 
+  let firstErr = "";
   for (const model of models) {
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -42,18 +43,22 @@ async function checkAnthropic(): Promise<{ status: string; detail: string }> {
         const text = data?.content?.[0]?.text?.slice(0, 30) ?? "no text";
         return { status: "PASS", detail: `model=${model}, response: "${text}"` };
       }
-      // If not 404, report the actual error
-      if (res.status !== 404) {
-        const err = await res.json().catch(() => ({}));
-        const errObj = err as Record<string, Record<string, string>>;
-        const msg = errObj?.error?.message ?? res.statusText;
-        return { status: res.status === 401 ? "FAIL" : "WARN", detail: `model=${model}, HTTP ${res.status}: ${msg}` };
+      // Capture full error for first model to help debug
+      if (res.status !== 200) {
+        const errText = await res.text().catch(() => "");
+        if (res.status !== 404) {
+          return { status: res.status === 401 ? "FAIL" : "WARN", detail: `model=${model}, HTTP ${res.status}: ${errText.slice(0, 200)}` };
+        }
+        // For 404, capture first error and continue trying
+        if (model === models[0]) {
+          firstErr = `${model}: ${errText.slice(0, 150)}`;
+        }
       }
     } catch (e) {
       return { status: "FAIL", detail: `Network error on ${model}: ${String(e)}` };
     }
   }
-  return { status: "FAIL", detail: `All models returned 404: ${models.join(", ")}` };
+  return { status: "FAIL", detail: `All ${models.length} models 404. First error: ${firstErr}` };
 }
 
 async function checkDeepgram(): Promise<{ status: string; detail: string }> {
