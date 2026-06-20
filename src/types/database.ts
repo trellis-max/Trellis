@@ -255,3 +255,76 @@ export interface AuditLog {
   ip_address: string | null;
   created_at: string;
 }
+
+
+// --- Phase 1 Extras ---
+
+export interface RunOfShowItem {
+  id: string;
+  event_id: string;
+  time_slot: string; // TIME as string
+  duration_minutes: number;
+  title: string;
+  description: string | null;
+  assigned_to: string | null; // FK to staff_members
+  location: string | null;
+  is_completed: boolean;
+  sort_order: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Vendor {
+  id: string;
+  name: string;
+  category: string;
+  contact_name: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  address: string | null;
+  notes: string | null;
+  is_preferred: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EventVendor {
+  id: string;
+  event_id: string;
+  vendor_id: string;
+  role: string | null;
+  arrival_time: string | null;
+  fee: number | null;
+  deposit_paid: boolean;
+  contract_signed: boolean;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface Checklist {
+  id: string;
+  event_id: string | null;
+  title: string;
+  description: string | null;
+  is_template: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChecklistItem {
+  id: string;
+  checklist_id: string;
+  title: string;
+  is_completed: boolean;
+  completed_at: string | null;
+  completed_by: string | null;
+  assigned_to: string | null;
+  sort_order: number;
+  due_time: string | null;
+  notes: string | null;
+  created_at: string;
+}
